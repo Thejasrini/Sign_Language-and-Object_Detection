@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Object Detection</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap');
+
+    body {
+      font-family: 'Roboto', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+      color: #333;
+    }
+
+    header {
+      background-color: #005f73;
+      color: white;
+      padding: 20px 10px;
+      text-align: center;
+      font-size: 1.8em;
+      font-weight: 500;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    main {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    video {
+      display: none; /* Hide the video element */
+    }
+
+    #canvas {
+      border: 2px solid #ccc;
+      border-radius: 10px;
+      margin: 20px 0;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    .button-container {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+
+    button {
+      font-size: 16px;
+      padding: 10px 25px;
+      border: none;
+      border-radius: 8px;
+      background-color: #0a9396;
+      color: white;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      transition: all 0.2s ease-in-out;
+      font-weight: 500;
+    }
+
+    button:hover {
+      background-color: #005f73;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    button:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    #status {
+      margin-top: 15px;
+      font-size: 1.1em;
+      color: #555;
+      text-align: center;
+    }
+
+    footer {
+      margin-top: 20px;
+      padding: 10px;
+      background-color: #333;
+      color: white;
+      text-align: center;
+      font-size: 0.9em;
+      box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    @media (max-width: 768px) {
+      canvas {
+        width: 90%;
+        height: auto;
+      }
+
+      button {
+        font-size: 14px;
+        padding: 8px 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    Object Detection with Voice Assistant
+  </header>
+  <main>
+    <video id="video" width="640" height="480" autoplay></video>
+    <canvas id="canvas" width="640" height="480"></canvas>
+    <div class="button-container">
+      <button onclick="startDetection()">Start Detection</button>
+      <button onclick="stopDetection()">Stop Detection</button>
+      <button id="startButton">Activate Voice Assistant</button>
+    </div>
+    <p id="status">Voice assistant is inactive. Click the button to activate it.</p>
+  </main>
+  <footer>
+    &copy; 2025 Object Detection App. All Rights Reserved.
+  </footer>
+
+  <script>
+    let video = document.getElementById('video');
+    let canvas = document.getElementById('canvas');
+    let context = canvas.getContext('2d');
+    let model = null;
+    let detectionActive = false;
+    let isSpeaking = false;
+    let lastDetectedObjects = new Set();
+
+    const status = document.getElementById('status');
+    const startButton = document.getElementById('startButton');
+
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = 'en-US';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    let isListening = false;
+
+    function startVoiceAssistant() {
+      if (isListening) {
+        console.log("Voice assistant is already active.");
+        return;
+      }
+      isListening = true;
+      status.innerText = "Listening for voice commands...";
+      recognition.start();
+    }
+
+    cocoSsd.load().then(loadedModel => {
+      model = loadedModel;
+      console.log("Model loaded!");
+    });
+
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        video.srcObject = stream;
+      })
+      .catch(err => {
+        console.error("Error accessing the camera: ", err);
+      });
+
+    function startDetection() {
+      if (detectionActive) {
+        status.innerText = "Detection is already running.";
+        return;
+      }
+      detectionActive = true;
+      status.innerText = "Object detection started.";
+      detectObjects();
+    }
+
+    function stopDetection() {
+      if (!detectionActive) {
+        status.innerText = "Detection is already stopped.";
+        return;
+      }
+      detectionActive = false;
+      status.innerText = "Object detection stopped.";
+    }
+
+    async function detectObjects() {
+      if (!model) {
+        console.log("Model not loaded yet!");
+        return;
+      }
+      while (detectionActive) {
+        const predictions = await model.detect(video);
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const detectedObjects = new Set();
+        predictions.forEach(prediction => {
+          if (prediction.score > 0.5) {
+            const [x, y, width, height] = prediction.bbox;
+            context.strokeStyle = "#005f73";
+            context.lineWidth = 2;
+            context.strokeRect(x, y, width, height);
+            context.font = "14px Roboto";
+            context.fillStyle = "#333";
+            context.fillText(
+              `${prediction.class} (${Math.round(prediction.score * 100)}%)`,
+              x,
+              y > 10 ? y - 5 : 10
+            );
+            detectedObjects.add(prediction.class);
+          }
+        });
+
+        if (detectedObjects.size > 0 && !isSpeaking) {
+          const detectedText = Array.from(detectedObjects).join(", ");
+          if (detectedText !== Array.from(lastDetectedObjects).join(", ")) {
+            const utterance = new SpeechSynthesisUtterance(`I see: ${detectedText}`);
+            utterance.onstart = () => { isSpeaking = true; };
+            utterance.onend = () => { isSpeaking = false; };
+            window.speechSynthesis.speak(utterance);
+            lastDetectedObjects = detectedObjects;
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    recognition.onresult = function(event) {
+      const command = event.results[event.resultIndex][0].transcript.toLowerCase();
+      status.innerText = `Voice command: "${command}"`;
+      if (command.includes("start")) {
+        startDetection();
+      } else if (command.includes("stop")) {
+        stopDetection();
+      } else {
+        const utterance = new SpeechSynthesisUtterance("Sorry, I didn't understand that command.");
+        window.speechSynthesis.speak(utterance);
+        if (command.includes("help")) {
+          const helpUtterance = new SpeechSynthesisUtterance(
+            "You can say 'start' to begin object detection or 'stop' to stop detection."
+          );
+          window.speechSynthesis.speak(helpUtterance);
+        } else {
+          const unknownCommandUtterance = new SpeechSynthesisUtterance(
+            "Please try again with a valid command."
+          );
+          window.speechSynthesis.speak(unknownCommandUtterance);
+        }
+      }
+    };
+
+    recognition.onerror = function(event) {
+      console.error("Voice recognition error: ", event.error);
+      status.innerText = "Voice assistant encountered an error.";
+    };
+
+    startButton.addEventListener('click', startVoiceAssistant);
+  </script>
+  <script>
+    (function(){if(!window.chatbase||window.chatbase("getState")!=="initialized"){window.chatbase=(...arguments)=>{if(!window.chatbase.q){window.chatbase.q=[]}window.chatbase.q.push(arguments)};window.chatbase=new Proxy(window.chatbase,{get(target,prop){if(prop==="q"){return target.q}return(...args)=>target(prop,...args)}})}const onLoad=function(){const script=document.createElement("script");script.src="https://www.chatbase.co/embed.min.js";script.id="vcdUNeWvmpZsdgHB6R8p1";script.domain="www.chatbase.co";document.body.appendChild(script)};if(document.readyState==="complete"){onLoad()}else{window.addEventListener("load",onLoad)}})();
+    
+    </script>
+</body>
+</html>
